@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>Vipers Chat</title>
+    <style>
+        body {
+            margin: 0;
+            padding-bottom: 3rem;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        #chat-header {
+            background: #333;
+            color: white;
+            padding: 1rem;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #chat-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        #status-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        #online-count {
+            background: #4CAF50;
+            padding: 0.25rem 0.5rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+        }
+
+        #connection-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+        }
+
+        .connected {
+            background: #4CAF50;
+        }
+
+        .disconnected {
+            background: #f44336;
+        }
+
+        #form {
+            background: rgba(0, 0, 0, 0.15);
+            padding: 0.25rem;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            height: 3rem;
+            box-sizing: border-box;
+            backdrop-filter: blur(10px);
+        }
+
+        #input {
+            border: none;
+            padding: 0 1rem;
+            flex-grow: 1;
+            border-radius: 2rem;
+            margin: 0.25rem;
+            font-size: 1rem;
+        }
+
+        #input:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px #4CAF50;
+        }
+
+        #form > button {
+            background: #333;
+            border: none;
+            padding: 0 1rem;
+            margin: 0.25rem;
+            border-radius: 3px;
+            outline: none;
+            color: #fff;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #form > button:hover:not(:disabled) {
+            background: #555;
+        }
+
+        #form > button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            margin-top: 80px;
+            padding-bottom: 1rem;
+        }
+
+        #messages > li {
+            padding: 0.75rem 1rem;
+            margin: 0.25rem 0;
+            border-radius: 8px;
+            word-wrap: break-word;
+        }
+
+        #messages > li:nth-child(odd) {
+            background: #efefef;
+        }
+
+        #messages > li:nth-child(even) {
+            background: white;
+        }
+
+        .sent-message {
+            background: #e3f2fd !important;
+            margin-left: 2rem;
+            border-left: 4px solid #2196F3;
+        }
+
+        .received-message {
+            background: #f3e5f5 !important;
+            margin-right: 2rem;
+            border-left: 4px solid #9c27b0;
+        }
+
+        .system-message {
+            background: #fff3e0 !important;
+            text-align: center;
+            font-style: italic;
+            color: #666;
+            border-left: 4px solid #ff9800;
+        }
+
+        .message-header {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+
+        .message-content {
+            font-size: 1rem;
+            color: #333;
+        }
+
+        #typing-indicator {
+            padding: 0.5rem 1rem;
+            font-style: italic;
+            color: #666;
+            font-size: 0.9rem;
+            margin-left: 0.5rem;
+        }
+
+        .typing-dots {
+            display: inline-block;
+        }
+
+        .typing-dots::after {
+            content: '';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="chat-header">
+        <div id="chat-title">شات الفيابرة</div>
+        <div id="status-info">
+            <div id="online-count">0 online</div>
+            <div id="connection-status" class="disconnected">Connecting...</div>
+        </div>
+    </div>
+
+    <ul id="messages"></ul>
+    <div id="typing-indicator"></div>
+    
+    <form id="form" action="">
+        <input id="input" autocomplete="off" placeholder="Type a message..." />
+        <button type="submit" id="send-btn" disabled>Send</button>
+    </form>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script>
+        const socket = io('http://localhost:3000', {
+            transports: ['websocket', 'polling']
+        });
+
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+        const messages = document.getElementById('messages');
+        const sendBtn = document.getElementById('send-btn');
+        const onlineCount = document.getElementById('online-count');
+        const connectionStatus = document.getElementById('connection-status');
+        const typingIndicator = document.getElementById('typing-indicator');
+
+        let isTyping = false;
+        let typingTimer;
+        let mySocketId = '';
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            mySocketId = socket.id;
+            connectionStatus.textContent = 'Connected';
+            connectionStatus.className = 'connection-status connected';
+            sendBtn.disabled = false;
+            addSystemMessage('Connected to chat server');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            connectionStatus.textContent = 'Disconnected';
+            connectionStatus.className = 'connection-status disconnected';
+            sendBtn.disabled = true;
+            addSystemMessage('Disconnected from server');
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            connectionStatus.textContent = 'Connection Error';
+            connectionStatus.className = 'connection-status disconnected';
+        });
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = input.value.trim();
+            if (message && socket.connected) {
+                socket.emit('chat_message', { message });
+                input.value = '';
+                stopTyping();
+            }
+        });
+
+        socket.on('chat_message', (data) => {
+            const isMyMessage = data.id === mySocketId;
+            addMessage(data.message, data.id, data.timestamp, isMyMessage);
+        });
+
+        input.addEventListener('input', () => {
+            if (!isTyping) {
+                startTyping();
+            }
+            
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(stopTyping, 500);
+        });
+
+        function startTyping() {
+            isTyping = true;
+            socket.emit('typing_start');
+        }
+
+        function stopTyping() {
+            if (isTyping) {
+                isTyping = false;
+                socket.emit('typing_stop');
+            }
+            clearTimeout(typingTimer);
+        }
+
+        socket.on('user_typing', (data) => {
+            if (data.userId !== mySocketId) {
+                if (data.typing) {
+                    showTypingIndicator(data.userId);
+                } else {
+                    hideTypingIndicator();
+                }
+            }
+        });
+
+        socket.on('user_status', (data) => {
+            onlineCount.textContent = `${data.userCount} online`;
+        });
+
+        function addMessage(message, userId, timestamp, isMyMessage) {
+            const item = document.createElement('li');
+            const time = new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            const userLabel = isMyMessage ? 'You' : `User ${userId.substring(0, 8)}`;
+
+            item.innerHTML = `
+                <div class="message-header">${userLabel} • ${time}</div>
+                <div class="message-content">${escapeHtml(message)}</div>
+            `;
+
+            item.className = isMyMessage ? 'sent-message' : 'received-message';
+            messages.appendChild(item);
+            scrollToBottom();
+        }
+
+        function addSystemMessage(message) {
+            const item = document.createElement('li');
+            item.innerHTML = `
+                <div class="message-header">System • ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                <div class="message-content">${message}</div>
+            `;
+            item.className = 'system-message';
+            messages.appendChild(item);
+            scrollToBottom();
+        }
+
+        function showTypingIndicator(userId) {
+            typingIndicator.innerHTML = `
+                <span>User ${userId.substring(0, 8)} is typing</span>
+                <span class="typing-dots"></span>
+            `;
+            scrollToBottom();
+        }
+
+        function hideTypingIndicator() {
+            typingIndicator.innerHTML = '';
+        }
+
+        function scrollToBottom() {
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        window.addEventListener('load', () => {
+            input.focus();
+        });
+    </script>
+</body>
+</html>
